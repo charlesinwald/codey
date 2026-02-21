@@ -1,0 +1,89 @@
+{
+  "name": "face-debugger",
+  "displayName": "Face-to-Face Debugging",
+  "description": "AI pair programmer with a photorealistic video avatar that watches your code and reacts in real-time",
+  "version": "1.0.0",
+  "publisher": "face-debugger",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "ai",
+    "pair programming",
+    "code review",
+    "avatar",
+    "debugging"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "faceDebugger.toggle",
+        "title": "Face Debugger: Toggle"
+      },
+      {
+        "command": "faceDebugger.openPanel",
+        "title": "Face Debugger: Open Panel"
+      }
+    ],
+    "configuration": {
+      "title": "Face Debugger",
+      "properties": {
+        "faceDebugger.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Backend API URL"
+        },
+        "faceDebugger.pollInterval": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 2000,
+          "maximum": 60000,
+          "description": "Polling interval in milliseconds"
+        },
+        "faceDebugger.ignoredLanguages": {
+          "type": "array",
+          "default": [
+            "plaintext",
+            "markdown",
+            "json",
+            "jsonc",
+            "log"
+          ],
+          "description": "Languages to ignore when polling"
+        },
+        "faceDebugger.frontendUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "description": "Frontend dev server URL (for development)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
