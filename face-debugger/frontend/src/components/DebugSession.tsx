@@ -40,12 +40,21 @@ export function DebugSession({
         const data: SessionStatus = await response.json();
 
         // Check if there's a new comment
-        if (data.last_comment && data.comment_count > prevCommentCount) {
-          // New comment received - trigger speech
-          setCurrentSpeech(data.last_comment);
-          setIsSpeaking(true);
-          setSpeechVisible(true);
-          setPrevCommentCount(data.comment_count);
+        // Also handle case where frontend loads after comment already exists
+        if (data.last_comment) {
+          if (data.comment_count > prevCommentCount) {
+            // New comment received - trigger speech
+            setCurrentSpeech(data.last_comment);
+            setIsSpeaking(true);
+            setSpeechVisible(true);
+            setPrevCommentCount(data.comment_count);
+          } else if (prevCommentCount === 0 && data.comment_count > 0) {
+            // Initial load with existing comments - show the latest one
+            setCurrentSpeech(data.last_comment);
+            setIsSpeaking(true);
+            setSpeechVisible(true);
+            setPrevCommentCount(data.comment_count);
+          }
         }
 
         setStatus({
