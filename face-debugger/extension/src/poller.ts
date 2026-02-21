@@ -32,7 +32,7 @@ export class Poller {
 
   // Configuration
   private backendUrl: string = "http://localhost:8000";
-  private pollInterval: number = 8000;
+  private pollInterval: number = 4000; // 4 seconds - balanced for checking complete code blocks
   private ignoredLanguages: string[] = [
     "plaintext",
     "markdown",
@@ -68,14 +68,14 @@ export class Poller {
   /**
    * Update configuration (called when settings change).
    */
-  updateConfig(): void {
+  async updateConfig(): Promise<void> {
     const wasRunning = this.running;
     if (wasRunning) {
-      this.stop();
+      await this.stop(false); // Don't clear session on config update
     }
     this.loadConfig();
     if (wasRunning) {
-      this.start();
+      await this.start();
     }
   }
 
@@ -88,8 +88,22 @@ export class Poller {
 
   /**
    * Start a new session with the backend.
+   * Clears any existing session data first to ensure fresh state.
    */
   async startSession(): Promise<boolean> {
+    // Clear existing session if we have one (to flush old errors)
+    if (this.sessionId) {
+      try {
+        console.log(`Face Debugger: Clearing previous session ${this.sessionId} before starting new one`);
+        await fetch(`${this.backendUrl}/session/${this.sessionId}`, {
+          method: "DELETE",
+        });
+      } catch (error) {
+        console.warn("Face Debugger: Error clearing previous session:", error);
+        // Continue anyway - we'll create a new session
+      }
+    }
+
     // Generate new session ID if not already set
     if (!this.sessionId) {
       this.sessionId = this.generateSessionId();
@@ -117,7 +131,7 @@ export class Poller {
         return false;
       }
 
-      const data: SessionStartResponse = await response.json();
+      const data = (await response.json()) as SessionStartResponse;
       this.sessionId = data.session_id;
 
       // Update stored session ID
@@ -167,15 +181,33 @@ export class Poller {
   }
 
   /**
-   * Stop polling.
+   * Stop polling and optionally clear session history.
    */
-  stop(): void {
+  async stop(clearSession: boolean = true): Promise<void> {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
     this.running = false;
     console.log("Face Debugger: Stopped polling");
+
+    // Clear session history when stopping
+    if (clearSession && this.sessionId) {
+      try {
+        console.log(`Face Debugger: Clearing session history for ${this.sessionId}`);
+        const response = await fetch(`${this.backendUrl}/session/${this.sessionId}`, {
+          method: "DELETE",
+        });
+        if (response.ok) {
+          const data = (await response.json()) as { deleted_keys: number; session_id: string; message: string };
+          console.log(`Face Debugger: Session cleared - ${data.deleted_keys} keys deleted`);
+        } else {
+          console.warn(`Face Debugger: Failed to clear session: ${response.status}`);
+        }
+      } catch (error) {
+        console.error("Face Debugger: Error clearing session:", error);
+      }
+    }
   }
 
   /**
@@ -248,6 +280,8 @@ export class Poller {
     };
 
     try {
+      console.log(`Face Debugger: Polling - file: ${document.fileName}, language: ${document.languageId}, cursor: ${cursorLine}, content length: ${content.length}`);
+      
       const response = await fetch(`${this.backendUrl}/analyze`, {
         method: "POST",
         headers: {
@@ -257,21 +291,26 @@ export class Poller {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
         console.error(
-          `Face Debugger: Analyze failed with status ${response.status}`
+          `Face Debugger: Analyze failed with status ${response.status}: ${errorText}`
         );
         return;
       }
 
-      const data: AnalyzeResponse = await response.json();
+      const data = (await response.json()) as AnalyzeResponse;
+
+      console.log(`Face Debugger: Response - speak: ${data.speak}, reason: ${data.reason || 'none'}, line: ${data.line ? `"${data.line.substring(0, 50)}..."` : 'null'}`);
 
       if (data.speak && data.line) {
-        console.log(`Face Debugger: Comment: "${data.line}"`);
+        console.log(`Face Debugger: ✅ COMMENT RECEIVED: "${data.line}"`);
       } else if (data.reason) {
-        console.log(`Face Debugger: Silent (${data.reason})`);
+        console.log(`Face Debugger: ⚠️ Silent (${data.reason})`);
+      } else {
+        console.log(`Face Debugger: ⚠️ No response data`);
       }
     } catch (error) {
-      console.error("Face Debugger: Poll failed", error);
+      console.error("Face Debugger: ❌ Poll failed", error);
     }
   }
 }

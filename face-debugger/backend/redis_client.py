@@ -11,7 +11,7 @@ class RedisClient:
     """Handles all Redis operations for session state management."""
 
     # TTL constants (in seconds)
-    DEBOUNCE_TTL = 12  # Block rapid repeat calls
+    DEBOUNCE_TTL = 3  # Block rapid repeat calls (reduced to 3s for immediate reactions)
     CONTENT_HASH_TTL = 30  # Cache content hash
     HISTORY_TTL = 3600  # 1 hour for comment history
     SESSION_TTL = 14400  # 4 hours for active session
@@ -21,6 +21,7 @@ class RedisClient:
     PREFIX_CONTENT_HASH = "content_hash"
     PREFIX_HISTORY = "history"
     PREFIX_SESSION = "session"
+    PREFIX_PERSONALITY = "personality"
 
     MAX_HISTORY_LENGTH = 10
 
@@ -68,6 +69,32 @@ class RedisClient:
         """
         key = self._key(self.PREFIX_SESSION, session_id)
         return self.client.exists(key) == 1
+
+    # ─────────────────────────────────────────────────────────────────
+    # Personality Operations
+    # ─────────────────────────────────────────────────────────────────
+
+    def set_personality(self, session_id: str, personality: str) -> None:
+        """Set the personality for a session.
+
+        Args:
+            session_id: The session identifier.
+            personality: The personality preset ID.
+        """
+        key = self._key(self.PREFIX_PERSONALITY, session_id)
+        self.client.setex(key, self.SESSION_TTL, personality)
+
+    def get_personality(self, session_id: str) -> Optional[str]:
+        """Get the personality for a session.
+
+        Args:
+            session_id: The session identifier.
+
+        Returns:
+            The personality preset ID, or None if not set.
+        """
+        key = self._key(self.PREFIX_PERSONALITY, session_id)
+        return self.client.get(key)
 
     # ─────────────────────────────────────────────────────────────────
     # Debounce Operations

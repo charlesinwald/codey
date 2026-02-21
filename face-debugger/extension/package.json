@@ -43,10 +43,10 @@
         },
         "faceDebugger.pollInterval": {
           "type": "number",
-          "default": 8000,
-          "minimum": 2000,
+          "default": 4000,
+          "minimum": 1000,
           "maximum": 60000,
-          "description": "Polling interval in milliseconds"
+          "description": "Polling interval in milliseconds (default: 4000ms for checking complete code blocks)"
         },
         "faceDebugger.ignoredLanguages": {
           "type": "array",

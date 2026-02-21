@@ -25,6 +25,7 @@ function App() {
 
   if (error) {
     return (
+      
       <div className="flex items-center justify-center h-screen bg-ide-bg p-6">
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-full bg-ide-error/20 flex items-center justify-center mx-auto mb-4">

@@ -32,8 +32,12 @@ export class AvatarPanel {
     // Set initial HTML content
     this.update();
 
-    // Handle panel disposal
-    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    // Handle panel disposal - clear session history when panel closes
+    this.panel.onDidDispose(() => {
+      this.dispose().catch((error) => {
+        console.error("Face Debugger: Error during panel disposal:", error);
+      });
+    }, null, this.disposables);
 
     // Handle visibility changes
     this.panel.onDidChangeViewState(
@@ -235,8 +239,27 @@ export class AvatarPanel {
 
   /**
    * Dispose the panel and clean up resources.
+   * Also clears session history to flush previous errors.
    */
-  public dispose(): void {
+  public async dispose(): Promise<void> {
+    // Clear session history when panel is closed
+    if (this.config.sessionId) {
+      try {
+        console.log(`Face Debugger: Clearing session history on panel close: ${this.config.sessionId}`);
+        const response = await fetch(`${this.config.backendUrl}/session/${this.config.sessionId}`, {
+          method: "DELETE",
+        });
+        if (response.ok) {
+          const data = (await response.json()) as { deleted_keys: number; session_id: string; message: string };
+          console.log(`Face Debugger: Session cleared on panel close - ${data.deleted_keys} keys deleted`);
+        } else {
+          console.warn(`Face Debugger: Failed to clear session on panel close: ${response.status}`);
+        }
+      } catch (error) {
+        console.error("Face Debugger: Error clearing session on panel close:", error);
+      }
+    }
+
     AvatarPanel.currentPanel = undefined;
 
     this.panel.dispose();

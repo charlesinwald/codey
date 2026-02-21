@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal
 
 
+
 class AnalyzeRequest(BaseModel):
     """Request body for POST /analyze endpoint."""
 
@@ -11,6 +12,10 @@ class AnalyzeRequest(BaseModel):
     cursor_line: int = Field(..., ge=1, description="Current cursor line number (1-indexed)")
     language: str = Field(..., description="Language ID from VS Code (e.g., 'typescript', 'python')")
     session_id: str = Field(..., description="Unique session identifier from extension")
+    personality: Optional[str] = Field(
+        default=None,
+        description="Personality preset for the AI (e.g., 'grumpy', 'mentor', 'sarcastic')"
+    )
 
 
 class AnalyzeResponse(BaseModel):
@@ -69,3 +74,18 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: Optional[str] = None
+
+
+class PersonalityInfo(BaseModel):
+    """Information about a personality preset."""
+
+    id: str
+    name: str
+    description: str
+
+
+class PersonalitiesResponse(BaseModel):
+    """Response body for GET /personalities endpoint."""
+
+    personalities: list[PersonalityInfo]
+    default: str
