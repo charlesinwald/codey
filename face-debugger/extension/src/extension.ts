@@ -78,19 +78,16 @@ export function activate(context: vscode.ExtensionContext) {
         sessionId = poller.getSessionId();
       }
 
-      // Get conversation URL
-      const conversationUrl = poller.getConversationUrl();
-      if (!conversationUrl) {
+      if (!sessionId) {
         vscode.window.showErrorMessage(
-          "Face Debugger: No active conversation. Try toggling the extension."
+          "Face Debugger: No active session."
         );
         return;
       }
 
       // Open the avatar panel
       AvatarPanel.createOrShow(context, {
-        sessionId: sessionId!,
-        conversationUrl: conversationUrl,
+        sessionId: sessionId,
         backendUrl: poller.getBackendUrl(),
       });
     }

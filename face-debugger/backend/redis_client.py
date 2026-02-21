@@ -1,7 +1,6 @@
 """Redis client for Face Debugger state management."""
 
 import hashlib
-import json
 import os
 from typing import Optional
 
@@ -15,14 +14,13 @@ class RedisClient:
     DEBOUNCE_TTL = 12  # Block rapid repeat calls
     CONTENT_HASH_TTL = 30  # Cache content hash
     HISTORY_TTL = 3600  # 1 hour for comment history
-    CONVERSATION_TTL = 14400  # 4 hours for conversation URL
+    SESSION_TTL = 14400  # 4 hours for active session
 
     # Key prefixes
     PREFIX_DEBOUNCE = "debounce"
     PREFIX_CONTENT_HASH = "content_hash"
     PREFIX_HISTORY = "history"
-    PREFIX_CONVERSATION = "conversation_url"
-    PREFIX_CONVERSATION_ID = "conversation_id"
+    PREFIX_SESSION = "session"
 
     MAX_HISTORY_LENGTH = 10
 
@@ -45,6 +43,31 @@ class RedisClient:
             return self.client.ping()
         except redis.RedisError:
             return False
+
+    # ─────────────────────────────────────────────────────────────────
+    # Session Operations
+    # ─────────────────────────────────────────────────────────────────
+
+    def set_session_active(self, session_id: str) -> None:
+        """Mark a session as active.
+
+        Args:
+            session_id: The session identifier.
+        """
+        key = self._key(self.PREFIX_SESSION, session_id)
+        self.client.setex(key, self.SESSION_TTL, "active")
+
+    def is_session_active(self, session_id: str) -> bool:
+        """Check if a session is active.
+
+        Args:
+            session_id: The session identifier.
+
+        Returns:
+            True if session is active, False otherwise.
+        """
+        key = self._key(self.PREFIX_SESSION, session_id)
+        return self.client.exists(key) == 1
 
     # ─────────────────────────────────────────────────────────────────
     # Debounce Operations
@@ -169,52 +192,6 @@ class RedisClient:
         return result[0] if result else None
 
     # ─────────────────────────────────────────────────────────────────
-    # Conversation URL Operations
-    # ─────────────────────────────────────────────────────────────────
-
-    def set_conversation(
-        self, session_id: str, conversation_url: str, conversation_id: str
-    ) -> None:
-        """Store Tavus conversation info for a session.
-
-        Args:
-            session_id: The session identifier.
-            conversation_url: The Tavus conversation URL.
-            conversation_id: The Tavus conversation ID.
-        """
-        url_key = self._key(self.PREFIX_CONVERSATION, session_id)
-        id_key = self._key(self.PREFIX_CONVERSATION_ID, session_id)
-
-        pipe = self.client.pipeline()
-        pipe.setex(url_key, self.CONVERSATION_TTL, conversation_url)
-        pipe.setex(id_key, self.CONVERSATION_TTL, conversation_id)
-        pipe.execute()
-
-    def get_conversation_url(self, session_id: str) -> Optional[str]:
-        """Get stored conversation URL.
-
-        Args:
-            session_id: The session identifier.
-
-        Returns:
-            Conversation URL or None if not set.
-        """
-        key = self._key(self.PREFIX_CONVERSATION, session_id)
-        return self.client.get(key)
-
-    def get_conversation_id(self, session_id: str) -> Optional[str]:
-        """Get stored conversation ID.
-
-        Args:
-            session_id: The session identifier.
-
-        Returns:
-            Conversation ID or None if not set.
-        """
-        key = self._key(self.PREFIX_CONVERSATION_ID, session_id)
-        return self.client.get(key)
-
-    # ─────────────────────────────────────────────────────────────────
     # Session Cleanup
     # ─────────────────────────────────────────────────────────────────
 
@@ -233,18 +210,6 @@ class RedisClient:
         if keys:
             return self.client.delete(*keys)
         return 0
-
-    def session_exists(self, session_id: str) -> bool:
-        """Check if a session has any stored data.
-
-        Args:
-            session_id: The session identifier.
-
-        Returns:
-            True if session has data, False otherwise.
-        """
-        # Check for conversation URL as indicator of active session
-        return self.get_conversation_url(session_id) is not None
 
 
 # Singleton instance

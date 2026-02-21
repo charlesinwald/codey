@@ -3,11 +3,11 @@
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from models import (
     AnalyzeRequest,
@@ -16,11 +16,9 @@ from models import (
     SessionStartResponse,
     SessionStatusResponse,
     HealthResponse,
-    ErrorResponse,
 )
-from redis_client import get_redis_client
+from redis_client import get_redis_client, RedisClient
 from claude_client import get_claude_client
-from tavus_client import get_tavus_client
 
 # Load environment variables
 load_dotenv()
@@ -30,9 +28,12 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup: verify connections
-    redis_client = get_redis_client()
-    if not redis_client.ping():
-        print("Warning: Redis not available at startup")
+    try:
+        redis_client = get_redis_client()
+        if not redis_client.ping():
+            print("Warning: Redis not available at startup")
+    except Exception as e:
+        print(f"Warning: Redis connection failed: {e}")
 
     yield
 
@@ -43,11 +44,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Face Debugger API",
     description="Backend for Face-to-Face Debugging VS Code extension",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-# Configure CORS
+# Configure CORS - must be added before routes
 allowed_origins = os.environ.get(
     "ALLOWED_ORIGINS",
     "http://localhost:5173,http://localhost:3000,vscode-webview://*"
@@ -55,19 +56,37 @@ allowed_origins = os.environ.get(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# Global exception handler to ensure CORS headers on errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "detail": "Internal server error"},
+    )
+
+
+def get_redis_safe() -> tuple[RedisClient | None, bool]:
+    """Get Redis client, returning None if unavailable."""
+    try:
+        client = get_redis_client()
+        if client.ping():
+            return client, True
+        return None, False
+    except Exception:
+        return None, False
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    redis_client = get_redis_client()
-    redis_ok = redis_client.ping()
-
+    _, redis_ok = get_redis_safe()
     status = "healthy" if redis_ok else "degraded"
 
     return HealthResponse(
@@ -78,67 +97,43 @@ async def health_check():
 
 @app.post("/session/start", response_model=SessionStartResponse)
 async def start_session(request: SessionStartRequest):
-    """Create a new debugging session with Tavus conversation.
+    """Create a new debugging session.
 
-    Creates a Tavus CVI conversation and stores the URL in Redis.
+    Initializes session state in Redis if available.
     """
     session_id = request.session_id or str(uuid.uuid4())
 
-    redis_client = get_redis_client()
-    tavus_client = get_tavus_client()
+    redis_client, redis_ok = get_redis_safe()
 
-    # Check if session already has an active conversation
-    existing_url = redis_client.get_conversation_url(session_id)
-    existing_id = redis_client.get_conversation_id(session_id)
+    if redis_client and redis_ok:
+        try:
+            redis_client.set_session_active(session_id)
+        except Exception as e:
+            print(f"Warning: Failed to set session active in Redis: {e}")
 
-    if existing_url and existing_id:
-        # Verify conversation is still active
-        conversation = await tavus_client.get_conversation(existing_id)
-        if conversation and conversation.get("status") == "active":
-            return SessionStartResponse(
-                conversation_url=existing_url,
-                session_id=session_id,
-                conversation_id=existing_id,
-            )
-
-    # Create new Tavus conversation
-    try:
-        result = await tavus_client.create_conversation(
-            conversation_name=f"Face Debugger - {session_id[:8]}",
-            custom_greeting="Hey. I'm watching your code. Let's see what you've got.",
-        )
-
-        # Store in Redis
-        redis_client.set_conversation(
-            session_id,
-            result["conversation_url"],
-            result["conversation_id"],
-        )
-
-        return SessionStartResponse(
-            conversation_url=result["conversation_url"],
-            session_id=session_id,
-            conversation_id=result["conversation_id"],
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create Tavus conversation: {str(e)}",
-        )
+    return SessionStartResponse(
+        session_id=session_id,
+        active=True,
+    )
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_code(request: AnalyzeRequest):
-    """Analyze code and optionally trigger avatar speech.
+    """Analyze code and return AI commentary.
 
     Implements smart debouncing:
     1. Check content hash - skip if file hasn't changed
     2. Check time debounce - skip if spoke recently
     3. Call Claude for analysis
-    4. If Claude wants to speak, trigger Tavus and update state
+    4. If Claude wants to speak, store in history and return
     """
-    redis_client = get_redis_client()
+    redis_client, redis_ok = get_redis_safe()
+
+    if not redis_ok:
+        raise HTTPException(
+            status_code=503,
+            detail="Redis is not available. Please ensure Redis is running."
+        )
 
     # 1. Content hash check - primary cost control
     if not redis_client.has_content_changed(request.session_id, request.file_content):
@@ -158,7 +153,14 @@ async def analyze_code(request: AnalyzeRequest):
     recent_history = redis_client.get_history(request.session_id)
 
     # 4. Call Claude for analysis
-    claude_client = get_claude_client()
+    try:
+        claude_client = get_claude_client()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Claude client not configured: {e}"
+        )
+
     analysis = claude_client.analyze_code(
         file_content=request.file_content,
         cursor_line=request.cursor_line,
@@ -172,70 +174,49 @@ async def analyze_code(request: AnalyzeRequest):
             reason="nothing_to_say",
         )
 
-    # 5. Claude wants to speak - trigger Tavus
-    conversation_id = redis_client.get_conversation_id(request.session_id)
+    # 5. Claude wants to speak - store in history and set debounce
+    redis_client.add_to_history(request.session_id, analysis.line)
+    redis_client.set_debounce(request.session_id)
 
-    if conversation_id:
-        tavus_client = get_tavus_client()
-        success = await tavus_client.speak(conversation_id, analysis.line)
-
-        if success:
-            # Update state: add to history, set debounce
-            redis_client.add_to_history(request.session_id, analysis.line)
-            redis_client.set_debounce(request.session_id)
-
-            return AnalyzeResponse(
-                speak=True,
-                line=analysis.line,
-            )
-        else:
-            # Tavus failed but Claude had something to say
-            # Still return the line for logging/display purposes
-            return AnalyzeResponse(
-                speak=True,
-                line=analysis.line,
-                reason="tavus_failed",
-            )
-    else:
-        # No active conversation, but Claude had something to say
-        return AnalyzeResponse(
-            speak=True,
-            line=analysis.line,
-            reason="no_conversation",
-        )
+    return AnalyzeResponse(
+        speak=True,
+        line=analysis.line,
+    )
 
 
 @app.get("/session/{session_id}/status", response_model=SessionStatusResponse)
 async def get_session_status(session_id: str):
     """Get status information for a session."""
-    redis_client = get_redis_client()
+    redis_client, redis_ok = get_redis_safe()
 
-    conversation_url = redis_client.get_conversation_url(session_id)
+    if not redis_ok:
+        return SessionStatusResponse(
+            session_id=session_id,
+            active=False,
+            comment_count=0,
+            last_comment=None,
+        )
+
+    active = redis_client.is_session_active(session_id)
     comment_count = redis_client.get_history_count(session_id)
     last_comment = redis_client.get_last_comment(session_id)
 
     return SessionStatusResponse(
         session_id=session_id,
-        active=conversation_url is not None,
+        active=active,
         comment_count=comment_count,
         last_comment=last_comment,
-        conversation_url=conversation_url,
     )
 
 
 @app.delete("/session/{session_id}")
 async def end_session(session_id: str):
     """End a debugging session and clean up resources."""
-    redis_client = get_redis_client()
-    tavus_client = get_tavus_client()
+    redis_client, redis_ok = get_redis_safe()
 
-    # End Tavus conversation if active
-    conversation_id = redis_client.get_conversation_id(session_id)
-    if conversation_id:
-        await tavus_client.end_conversation(conversation_id)
-
-    # Clear all Redis keys for this session
-    deleted_count = redis_client.clear_session(session_id)
+    deleted_count = 0
+    if redis_ok:
+        deleted_count = redis_client.clear_session(session_id)
 
     return {
         "session_id": session_id,
@@ -247,7 +228,15 @@ async def end_session(session_id: str):
 @app.get("/session/{session_id}/history")
 async def get_session_history(session_id: str):
     """Get comment history for a session."""
-    redis_client = get_redis_client()
+    redis_client, redis_ok = get_redis_safe()
+
+    if not redis_ok:
+        return {
+            "session_id": session_id,
+            "comments": [],
+            "count": 0,
+        }
+
     history = redis_client.get_history(session_id)
 
     return {

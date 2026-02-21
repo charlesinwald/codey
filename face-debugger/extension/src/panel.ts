@@ -8,7 +8,6 @@ import * as vscode from "vscode";
 
 interface PanelConfig {
   sessionId: string;
-  conversationUrl: string;
   backendUrl: string;
 }
 
@@ -120,7 +119,6 @@ export class AvatarPanel {
     // Create initial state object to pass to the frontend
     const initialState = {
       sessionId: this.config.sessionId,
-      conversationUrl: this.config.conversationUrl,
       backendUrl: this.config.backendUrl,
       isVSCode: true,
     };
@@ -135,7 +133,7 @@ export class AvatarPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'none';
-    frame-src ${frontendUrl} https://*.daily.co https://*.tavus.io https://tavusapi.com;
+    frame-src ${frontendUrl};
     script-src 'unsafe-inline';
     style-src 'unsafe-inline';
     connect-src ${this.config.backendUrl};
@@ -200,8 +198,7 @@ export class AvatarPanel {
     </div>
     <iframe
       id="avatar-frame"
-      src="${frontendUrl}?sessionId=${encodeURIComponent(this.config.sessionId)}&conversationUrl=${encodeURIComponent(this.config.conversationUrl)}&backendUrl=${encodeURIComponent(this.config.backendUrl)}&isVSCode=true"
-      allow="camera; microphone; display-capture"
+      src="${frontendUrl}?sessionId=${encodeURIComponent(this.config.sessionId)}&backendUrl=${encodeURIComponent(this.config.backendUrl)}&isVSCode=true"
       onload="document.getElementById('loading').classList.add('hidden')"
     ></iframe>
   </div>

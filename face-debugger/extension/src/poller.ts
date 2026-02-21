@@ -20,9 +20,8 @@ interface AnalyzeResponse {
 }
 
 interface SessionStartResponse {
-  conversation_url: string;
   session_id: string;
-  conversation_id: string;
+  active: boolean;
 }
 
 export class Poller {
@@ -30,7 +29,6 @@ export class Poller {
   private intervalId: NodeJS.Timeout | null = null;
   private running = false;
   private sessionId: string | null = null;
-  private conversationUrl: string | null = null;
 
   // Configuration
   private backendUrl: string = "http://localhost:8000";
@@ -120,7 +118,6 @@ export class Poller {
       }
 
       const data: SessionStartResponse = await response.json();
-      this.conversationUrl = data.conversation_url;
       this.sessionId = data.session_id;
 
       // Update stored session ID
@@ -146,7 +143,7 @@ export class Poller {
     }
 
     // Start session if needed
-    if (!this.sessionId || !this.conversationUrl) {
+    if (!this.sessionId) {
       const success = await this.startSession();
       if (!success) {
         return false;
@@ -193,13 +190,6 @@ export class Poller {
    */
   getSessionId(): string | null {
     return this.sessionId;
-  }
-
-  /**
-   * Get the conversation URL.
-   */
-  getConversationUrl(): string | null {
-    return this.conversationUrl;
   }
 
   /**
@@ -276,8 +266,7 @@ export class Poller {
       const data: AnalyzeResponse = await response.json();
 
       if (data.speak && data.line) {
-        console.log(`Face Debugger: Avatar speaking: "${data.line}"`);
-        // The backend handles triggering Tavus - we just log here
+        console.log(`Face Debugger: Comment: "${data.line}"`);
       } else if (data.reason) {
         console.log(`Face Debugger: Silent (${data.reason})`);
       }

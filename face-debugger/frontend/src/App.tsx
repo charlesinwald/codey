@@ -3,8 +3,7 @@ import { useSession } from "./hooks/useSession";
 import { DebugSession } from "./components/DebugSession";
 
 function App() {
-  const { sessionId, conversationUrl, backendUrl, isLoading, error, initSession } =
-    useSession();
+  const { sessionId, backendUrl, isLoading, error, initSession } = useSession();
 
   useEffect(() => {
     // Notify parent (VS Code WebView) that we're ready
@@ -58,7 +57,7 @@ function App() {
     );
   }
 
-  if (!sessionId || !conversationUrl) {
+  if (!sessionId) {
     return (
       <div className="flex items-center justify-center h-screen bg-ide-bg p-6">
         <div className="text-center max-w-md">
@@ -82,8 +81,9 @@ function App() {
   return (
     <DebugSession
       sessionId={sessionId}
-      conversationUrl={conversationUrl}
       backendUrl={backendUrl}
+      // Optional: provide a GLTF model URL for custom avatar
+      // modelUrl="/models/avatar.glb"
     />
   );
 }

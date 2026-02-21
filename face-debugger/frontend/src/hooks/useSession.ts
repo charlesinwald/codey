@@ -2,17 +2,15 @@ import { useState, useEffect, useCallback } from "react";
 
 interface SessionState {
   sessionId: string | null;
-  conversationUrl: string | null;
-  conversationId: string | null;
   backendUrl: string;
   isLoading: boolean;
   error: string | null;
+  active: boolean;
 }
 
 interface SessionStartResponse {
   session_id: string;
-  conversation_url: string;
-  conversation_id: string;
+  active: boolean;
 }
 
 interface UseSessionReturn extends SessionState {
@@ -28,7 +26,6 @@ function getInitialStateFromUrl(): Partial<SessionState> {
 
   return {
     sessionId: params.get("sessionId"),
-    conversationUrl: params.get("conversationUrl"),
     backendUrl:
       params.get("backendUrl") ||
       import.meta.env.VITE_BACKEND_URL ||
@@ -46,7 +43,6 @@ function listenForVSCodeInit(
     if (event.data && event.data.type === "FACE_DEBUGGER_INIT") {
       callback({
         sessionId: event.data.state.sessionId,
-        conversationUrl: event.data.state.conversationUrl,
         backendUrl: event.data.state.backendUrl,
       });
     }
@@ -61,11 +57,10 @@ export function useSession(): UseSessionReturn {
 
   const [state, setState] = useState<SessionState>({
     sessionId: initialState.sessionId || null,
-    conversationUrl: initialState.conversationUrl || null,
-    conversationId: null,
     backendUrl: initialState.backendUrl || "http://localhost:8000",
-    isLoading: !initialState.sessionId || !initialState.conversationUrl,
+    isLoading: !initialState.sessionId,
     error: null,
+    active: false,
   });
 
   /**
@@ -92,8 +87,7 @@ export function useSession(): UseSessionReturn {
       setState((prev) => ({
         ...prev,
         sessionId: data.session_id,
-        conversationUrl: data.conversation_url,
-        conversationId: data.conversation_id,
+        active: data.active,
         isLoading: false,
         error: null,
       }));
@@ -122,8 +116,7 @@ export function useSession(): UseSessionReturn {
       setState((prev) => ({
         ...prev,
         sessionId: null,
-        conversationUrl: null,
-        conversationId: null,
+        active: false,
       }));
     } catch (err) {
       console.error("Failed to end session:", err);
@@ -138,6 +131,7 @@ export function useSession(): UseSessionReturn {
         ...newState,
         isLoading: false,
         error: null,
+        active: true,
       }));
     });
 
@@ -146,17 +140,17 @@ export function useSession(): UseSessionReturn {
 
   // Auto-init session if not provided via URL params
   useEffect(() => {
-    if (state.isLoading && !state.sessionId && !state.conversationUrl) {
+    if (state.isLoading && !state.sessionId) {
       // Small delay to allow VS Code init message to arrive first
       const timer = setTimeout(() => {
-        if (!state.sessionId && !state.conversationUrl) {
+        if (!state.sessionId) {
           initSession();
         }
       }, 500);
 
       return () => clearTimeout(timer);
     }
-  }, [state.isLoading, state.sessionId, state.conversationUrl, initSession]);
+  }, [state.isLoading, state.sessionId, initSession]);
 
   return {
     ...state,
