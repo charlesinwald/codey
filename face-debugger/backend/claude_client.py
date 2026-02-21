@@ -15,15 +15,18 @@ developer is actively editing, plus their current cursor line.
 
 SPEAK UP when you notice:
 - A likely bug or unhandled edge case near the cursor or recently edited area
+- An undefined variable, typo in variable name, or wrong variable being used (THIS IS CRITICAL - always flag these)
 - A dangerous pattern (mutation, injection, race condition, off-by-one)
 - A naming or readability issue severe enough to hurt future maintainers
 - Something genuinely clever worth acknowledging (rarely)
+
+IMPORTANT: If you see an undefined variable being used (like using `c` when only `a` and `b` are defined), you MUST speak up. This is a clear bug.
 
 STAY SILENT when:
 - The code looks fine
 - You already commented on this recently (check: {recent_history})
 - The change is trivial (adding a blank line, fixing indentation)
-- You are not confident there is actually an issue
+- You are not confident there is actually an issue (but be confident about obvious bugs like undefined variables - ALWAYS flag undefined variables)
 
 PERSONALITY:
 - Dry, understated. You have seen everything before.
@@ -53,8 +56,11 @@ OR
 class ClaudeClient:
     """Wrapper for Anthropic Claude API for code analysis."""
 
-    MODEL = "claude-sonnet-4-5-20250514"
+    MODEL = "claude-opus-4-6"  # Claude Opus 4.6
     MAX_TOKENS = 100
+    
+    # Store last raw response for debugging
+    _last_raw_response: str = ""
 
     def __init__(self, api_key: Optional[str] = None):
         """Initialize Claude client.
@@ -112,12 +118,28 @@ class ClaudeClient:
             # Extract text content
             text_content = response.content[0].text.strip()
 
+            # Store for debugging
+            ClaudeClient._last_raw_response = text_content
+
+            # Debug logging
+            print(f"Claude raw response: {text_content}")
+
             # Parse JSON response
             return self._parse_response(text_content)
 
         except anthropic.APIError as e:
             # Log error but return silent response
-            print(f"Claude API error: {e}")
+            error_msg = f"Claude API error: {e}"
+            print(error_msg)
+            ClaudeClient._last_raw_response = f"ERROR: {error_msg}"
+            return ClaudeAnalysis(speak=False)
+        except Exception as e:
+            # Log unexpected errors
+            error_msg = f"Unexpected error in Claude analysis: {e}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            ClaudeClient._last_raw_response = f"ERROR: {error_msg}"
             return ClaudeAnalysis(speak=False)
 
     def _build_user_message(self, file_content: str, cursor_line: int) -> str:

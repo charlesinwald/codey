@@ -117,6 +117,10 @@ async def start_session(request: SessionStartRequest):
     )
 
 
+# Global variable to store last debug info
+_last_debug_info = {}
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_code(request: AnalyzeRequest):
     """Analyze code and return AI commentary.
@@ -137,6 +141,7 @@ async def analyze_code(request: AnalyzeRequest):
 
     # 1. Content hash check - primary cost control
     if not redis_client.has_content_changed(request.session_id, request.file_content):
+        _last_debug_info["reason"] = "no_change"
         return AnalyzeResponse(
             speak=False,
             reason="no_change",
@@ -144,6 +149,7 @@ async def analyze_code(request: AnalyzeRequest):
 
     # 2. Debounce check - prevent rapid-fire comments
     if redis_client.is_debounced(request.session_id):
+        _last_debug_info["reason"] = "debounced"
         return AnalyzeResponse(
             speak=False,
             reason="debounced",
@@ -167,6 +173,22 @@ async def analyze_code(request: AnalyzeRequest):
         language=request.language,
         recent_history=recent_history,
     )
+
+    # Debug logging
+    from claude_client import ClaudeClient as ClaudeClientClass
+    raw_response = ClaudeClientClass._last_raw_response
+    
+    print(f"Claude analysis result: speak={analysis.speak}, line={analysis.line}")
+    print(f"Claude raw response: {raw_response}")
+    
+    _last_debug_info.update({
+        "speak": analysis.speak,
+        "line": analysis.line,
+        "raw_response": raw_response,
+        "file_content": request.file_content,
+        "cursor_line": request.cursor_line,
+        "language": request.language,
+    })
 
     if not analysis.speak or not analysis.line:
         return AnalyzeResponse(
@@ -244,6 +266,12 @@ async def get_session_history(session_id: str):
         "comments": history,
         "count": len(history),
     }
+
+
+@app.get("/debug/last-analysis")
+async def get_last_analysis():
+    """Debug endpoint to see last Claude analysis result."""
+    return _last_debug_info
 
 
 if __name__ == "__main__":
